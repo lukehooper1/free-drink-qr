@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Camera Test</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body style="font-family: system-ui; padding: 16px;">
+  <h1>Camera Test</h1>
+  <p>If you see video below, permissions work.</p>
+  <button id="go" style="padding:8px 12px;border:1px solid #333;border-radius:8px;">Start camera</button>
+  <div style="background:#000;aspect-ratio:16/9;border-radius:12px;overflow:hidden;margin-top:12px;">
+    <video id="v" playsinline muted style="width:100%;height:100%;object-fit:cover;"></video>
+  </div>
+  <pre id="log" style="white-space:pre-wrap;margin-top:12px;"></pre>
+  <script>
+    const v = document.getElementById('v'); const log = (t)=>document.getElementById('log').textContent=t;
+    document.getElementById('go').onclick = async () => {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio:false });
+        v.srcObject = s; await v.play(); log('Camera started ✅');
+      } catch(e){ log('Error: ' + (e.message||e)); }
+    };
+  </script>
+</body>
+</html>
