@@ -20,7 +20,6 @@
         <span id="who" class="text-sm text-slate-600"></span>
       </div>
 
-      <!-- Start button is crucial for iOS permission -->
       <button id="startScanner" class="bg-slate-800 text-white px-3 py-2 rounded mb-3">Start scanner</button>
 
       <div class="aspect-video bg-black rounded overflow-hidden mb-3">
@@ -35,10 +34,25 @@
 
       <div id="status" class="text-sm text-slate-600 mb-2"></div>
       <div id="result" class="text-sm"></div>
+
+      <noscript class="text-red-600 text-sm">JavaScript is disabled — enable it to use the scanner.</noscript>
     </div>
   </div>
 
-  <!-- IMPORTANT: type=module and cache-buster ?v=short4 -->
-  <script type="module" src="script-staff.js?v=short4"></script>
+  <!-- UMD build of ZXing (no modules needed) -->
+  <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
+
+  <!-- Our non-module script -->
+  <script src="/script-staff-umd.js?v=um2"></script>
+
+  <!-- Tiny boot check: shows a message if JS didn't wire up -->
+  <script>
+    setTimeout(() => {
+      if (!window.__STAFF_BOOT_OK__) {
+        document.getElementById('status').textContent =
+          'Loader error: staff script not initialized. Try reloading or clear cache.';
+      }
+    }, 1200);
+  </script>
 </body>
 </html>
