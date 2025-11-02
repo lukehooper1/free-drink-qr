@@ -1,5 +1,13 @@
 
 import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// serve static files (html, js, css)
+app.use(express.static(__dirname));
+
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -193,3 +201,7 @@ app.get("/api/admin/recent", (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`Free Drink QR running on http://localhost:${PORT}`));
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "index.html"));
+});
+
