@@ -1,0 +1,91 @@
+
+import { BrowserMultiFormatReader, NotFoundException } from "https://unpkg.com/@zxing/browser@0.1.5/esm/index.js";
+
+const video = document.getElementById("preview");
+const staffIdInput = document.getElementById("staffId");
+const setStaffBtn = document.getElementById("setStaff");
+const who = document.getElementById("who");
+const manual = document.getElementById("manual");
+const previewBtn = document.getElementById("previewBtn");
+const redeemBtn = document.getElementById("redeemBtn");
+const result = document.getElementById("result");
+const statusEl = document.getElementById("status");
+
+function getStaff() { return localStorage.getItem("staff_id") || ""; }
+function setStaff(id) { localStorage.setItem("staff_id", id); who.textContent = id ? `Logged in as ${id}` : ""; }
+setStaff(getStaff());
+
+setStaffBtn.onclick = () => setStaff(staffIdInput.value.trim());
+
+let lastText = "";
+let currentToken = null;
+
+async function startScanner() {
+  try {
+    const reader = new BrowserMultiFormatReader();
+    const devices = await BrowserMultiFormatReader.listVideoInputDevices();
+    const deviceId = devices?.[0]?.deviceId;
+    if (!deviceId) { statusEl.textContent = "No camera found."; return; }
+    await reader.decodeFromVideoDevice(deviceId, video, (res, err) => {
+      if (res) {
+        const text = res.getText();
+        if (text !== lastText) {
+          lastText = text;
+          handleScanned(text);
+        }
+      }
+    });
+  } catch (e) {
+    statusEl.textContent = "Camera error: " + e.message;
+  }
+}
+startScanner();
+
+async function handleScanned(text) {
+  statusEl.textContent = "Scanned";
+  let token = text;
+  try { const u = new URL(text); token = u.searchParams.get("token") || text; } catch {}
+  await fetchPreview(token);
+}
+previewBtn.onclick = () => handleScanned(manual.value.trim());
+
+async function fetchPreview(token) {
+  result.innerHTML = "Looking up token…";
+  try {
+    const res = await fetch(`/api/admin/preview?token=${encodeURIComponent(token)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Invalid token");
+    currentToken = token;
+    result.innerHTML = `<div class="border rounded p-3">
+      <div><b>Name:</b> ${data.name || "—"}</div>
+      <div><b>Phone:</b> ${data.phone || "—"}</div>
+      <div><b>Campaign:</b> ${data.campaign_name || "—"}</div>
+      <div><b>Status:</b> ${data.redeemed_at ? "Already redeemed" : "Active"}</div>
+      <div><b>Expires:</b> ${data.token_expires ? new Date(data.token_expires).toLocaleTimeString() : "—"}</div>
+    </div>`;
+  } catch (e) {
+    result.innerHTML = `<div class="text-red-600">` + (e.message || String(e)) + `</div>`;
+  }
+}
+
+redeemBtn.onclick = async () => {
+  const t = currentToken || manual.value.trim();
+  if (!t) { alert("No token"); return; }
+  const staff = getStaff() || "staff";
+  redeemBtn.disabled = true; redeemBtn.textContent = "Redeeming…";
+  try {
+    let coords = {};
+    try {
+      const loc = await new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout:2000}));
+      coords = { device_lat: loc.coords.latitude, device_lng: loc.coords.longitude };
+    } catch {}
+    const res = await fetch("/api/redeem", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ token: t, staff_id: staff, ...coords }) });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || "Redeem failed");
+    result.innerHTML = `<div class="text-green-700">Redeemed for ${data.name} at ${new Date(data.redeemed_at).toLocaleTimeString()}</div>`;
+  } catch (e) {
+    result.innerHTML = `<div class="text-red-600">` + (e.message || String(e)) + `</div>`;
+  } finally {
+    redeemBtn.disabled = false; redeemBtn.textContent = "Redeem";
+  }
+};

@@ -1,0 +1,30 @@
+{
+  "campaigns": [
+    {
+      "id": 1,
+      "name": "Student Night",
+      "free_item": "Free Shot",
+      "start_time": "2025-11-02T17:29:13.595Z",
+      "end_time": "2025-11-03T00:29:13.596Z"
+    }
+  ],
+  "claims": [],
+  "redemptions": [],
+  "scans": [
+    {
+      "t": "2025-11-02T18:29:28.036Z",
+      "source": "poster",
+      "campaign_id": 1
+    },
+    {
+      "t": "2025-11-02T18:51:33.330Z",
+      "source": "poster",
+      "campaign_id": 1
+    },
+    {
+      "t": "2025-11-02T18:52:30.685Z",
+      "source": "poster",
+      "campaign_id": 1
+    }
+  ]
+}
