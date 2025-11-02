@@ -1,4 +1,3 @@
-
 const claimBtn = document.getElementById("claimBtn");
 const errEl = document.getElementById("error");
 const qrArea = document.getElementById("qr-area");
@@ -25,10 +24,16 @@ claimBtn.onclick = async () => {
     const res = await fetch("/api/claim", { method:"POST", headers: { "Content-Type":"application/json" }, body: JSON.stringify({ campaign_id:1, name, phone, dob, source: src })});
     const data = await res.json();
     if (!res.ok || !data.success) throw new Error(data.error || "Request failed");
+
+    // Show SHORT CODE in the QR for fast scanning
     formArea.classList.add("hidden");
     qrArea.classList.remove("hidden");
-    new QRCode(document.getElementById("qrcode"), { text: data.redeem_url, width: 220, height: 220 });
-    const input = document.getElementById("redeemUrl"); input.value = data.redeem_url;
+
+    const el = document.getElementById("qrcode");
+    el.innerHTML = "";
+    new QRCode(el, { text: data.short_code, width: 240, height: 240 });
+    const input = document.getElementById("redeemUrl");
+    input.value = data.short_code + "  (short code)";
     window.scrollTo({ top: 0, behavior: "smooth" });
   } catch(e) {
     errEl.textContent = e.message || String(e);
