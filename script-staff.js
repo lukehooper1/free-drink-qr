@@ -1,6 +1,5 @@
-// public/script-staff.js
-// Tries BarcodeDetector (fast) → falls back to ZXing → allows manual entry.
-// Starts camera on a button click (required by iOS). Requests the rear camera.
+// Minimal robust scanner: reads plain short codes (e.g., FD-3K9T7Q) OR URLs with ?token= or /t/<code>
+import { BrowserMultiFormatReader } from "https://unpkg.com/@zxing/browser@0.1.5/esm/index.js";
 
 const video = document.getElementById("preview");
 const staffIdInput = document.getElementById("staffId");
@@ -12,7 +11,7 @@ const redeemBtn = document.getElementById("redeemBtn");
 const result = document.getElementById("result");
 const statusEl = document.getElementById("status");
 
-// Add Start button if missing
+// Start button (for iOS)
 let startBtn = document.getElementById("startScanner");
 if (!startBtn) {
   startBtn = document.createElement("button");
@@ -27,104 +26,70 @@ function setStaff(id){ localStorage.setItem("staff_id", id); who.textContent = i
 setStaff(getStaff());
 setStaffBtn.onclick = () => setStaff(staffIdInput.value.trim());
 
-// Fallback: ZXing (loaded dynamically if needed)
-let ZXReader = null;
-async function loadZXing(){
-  if (ZXReader) return ZXReader;
-  const mod = await import("https://unpkg.com/@zxing/browser@0.1.5/esm/index.js");
-  ZXReader = new mod.BrowserMultiFormatReader();
-  return ZXReader;
-}
+let reader;
+let currentToken = null;
+let started = false;
 
-let stream, rafId, detector, started = false;
-
-async function getRearStream() {
-  const constraints = {
-    audio: false,
-    video: {
-      facingMode: { ideal: "environment" },
-      width: { ideal: 1280 },
-      height: { ideal: 720 }
-    }
-  };
-  return navigator.mediaDevices.getUserMedia(constraints);
+function extractCodeOrToken(text) {
+  // 1) Try full URL with ?token=
+  try {
+    const u = new URL(text);
+    const pTok = u.searchParams.get("token");
+    if (pTok) return pTok;
+    // 2) Try /t/<code>
+    const m = u.pathname.match(/\\/t\\/([^/?#]+)/i);
+    if (m) return decodeURIComponent(m[1]);
+  } catch {}
+  // 3) If it looks like our short code (FD-XXXXXXX), accept directly
+  if (/^FD-[A-Z0-9]{7}$/i.test(text.trim())) return text.trim().toUpperCase();
+  // 4) Otherwise pass raw (maybe a long token)
+  return text.trim();
 }
 
 async function startScanner() {
-  if (started) return;
-  started = true;
+  if (started) return; started = true;
   statusEl.textContent = "Requesting camera…";
-  video.setAttribute("playsinline", "true"); // iOS requirement
+  video.setAttribute("playsinline", "true");
   video.muted = true;
 
   try {
-    stream = await getRearStream();
-    video.srcObject = stream;
-    await video.play();
-  } catch (e) {
-    statusEl.textContent = "Camera permission denied or not available.";
-    return;
-  }
+    const devices = await BrowserMultiFormatReader.listVideoInputDevices();
+    if (!devices || devices.length === 0) { statusEl.textContent = "No camera devices found."; return; }
+    const rear = devices.find(d => /back|rear|environment/i.test(d.label || "")) || devices[devices.length - 1];
 
-  // Try BarcodeDetector first (fast on modern mobiles)
-  if ('BarcodeDetector' in window) {
-    try {
-      detector = new window.BarcodeDetector({ formats: ["qr_code"] });
-      statusEl.textContent = "Scanner ready (BarcodeDetector). Point at a QR.";
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-
-      const tick = async () => {
-        if (!video.videoWidth) { rafId = requestAnimationFrame(tick); return; }
-        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const bitmap = await createImageBitmap(canvas);
-        try {
-          const codes = await detector.detect(bitmap);
-          if (codes && codes.length) {
-            handleScanned(codes[0].rawValue);
-          }
-        } catch {}
-        rafId = requestAnimationFrame(tick);
-      };
-      tick();
-      return;
-    } catch (e) {
-      // fall through to ZXing
-    }
-  }
-
-  // Fallback: ZXing
-  try {
-    const Reader = await loadZXing();
-    statusEl.textContent = "Scanner ready (ZXing).";
-    await ZXReader.decodeFromVideoDevice(null, video, (res) => {
-      if (res) handleScanned(res.getText());
+    reader = new BrowserMultiFormatReader();
+    await reader.decodeFromVideoDevice(rear.deviceId, video, (res) => {
+      if (res) {
+        const text = res.getText();
+        handleScanned(text);
+      }
     });
+    statusEl.textContent = "Scanner ready. Point at a QR.";
   } catch (e) {
-    statusEl.textContent = "Scanner error: " + (e.message || String(e));
+    statusEl.textContent = "Camera error: " + (e.message || String(e));
   }
 }
-
 startBtn.onclick = startScanner;
 
 async function handleScanned(text) {
-  statusEl.textContent = "Scanned";
-  let token = text;
-  try { const u = new URL(text); token = u.searchParams.get("token") || text; } catch {}
-  await fetchPreview(token);
+  statusEl.textContent = "QR detected";
+  const tokenOrCode = extractCodeOrToken(text);
+  await fetchPreview(tokenOrCode);
 }
 
-previewBtn.onclick = () => handleScanned(manual.value.trim());
+previewBtn.onclick = () => {
+  const tokenOrCode = extractCodeOrToken(manual.value.trim());
+  fetchPreview(tokenOrCode);
+};
 
-async function fetchPreview(token) {
-  if (!token) return;
+async function fetchPreview(tokenOrCode) {
+  if (!tokenOrCode) return;
   result.innerHTML = "Looking up token…";
   try {
-    const res = await fetch(`/api/admin/preview?token=${encodeURIComponent(token)}`);
+    const res = await fetch(`/api/admin/preview?token=${encodeURIComponent(tokenOrCode)}`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Invalid token");
-    window.__currentToken = token;
+    currentToken = tokenOrCode;
     result.innerHTML = `<div class="border rounded p-3">
       <div><b>Name:</b> ${data.name || "—"}</div>
       <div><b>Phone:</b> ${data.phone || "—"}</div>
@@ -138,7 +103,7 @@ async function fetchPreview(token) {
 }
 
 redeemBtn.onclick = async () => {
-  const t = window.__currentToken || manual.value.trim();
+  const t = currentToken || extractCodeOrToken(manual.value.trim());
   if (!t) { alert("No token"); return; }
   const staff = getStaff() || "staff";
   redeemBtn.disabled = true; redeemBtn.textContent = "Redeeming…";
