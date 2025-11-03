@@ -2,122 +2,133 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Admin • Bars & Stats</title>
+  <title>Admin • Free Drink</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    html,body{margin:0;padding:0;font-family:system-ui,Arial,Helvetica,sans-serif;background:#0f0f12;color:#f4f4f7;}
-    .wrap{max-width:900px;margin:0 auto;padding:32px}
-    h1{margin:0 0 6px;font-size:26px}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
-    .card{background:#17171c;border:1px solid #2a2a32;border-radius:16px;padding:20px}
-    label{display:block;margin-top:10px;margin-bottom:6px;opacity:.85}
+    html,body{margin:0;padding:0;background:#0f0f12;color:#f4f4f7;font-family:system-ui,Arial}
+    .wrap{max-width:960px;margin:0 auto;padding:28px}
+    .card{background:#17171c;border:1px solid #2a2a32;border-radius:16px;padding:22px;margin-bottom:18px}
+    h1,h2{margin-top:0}
+    label{display:block;margin-top:10px;margin-bottom:6px;opacity:.9}
     input{width:100%;padding:10px;border-radius:10px;border:1px solid #2a2a32;background:#111118;color:#fff}
-    .btn{display:inline-block;border:none;background:#6ef3a5;color:#04140b;font-weight:700;padding:10px 12px;border-radius:10px;font-size:15px;cursor:pointer;margin-top:12px}
-    table{width:100%;border-collapse:collapse;margin-top:12px}
-    th,td{padding:10px;border-bottom:1px solid #2a2a32;text-align:left}
-    .muted{opacity:.7}
-    .error{background:#2a1212;border:1px solid #6b1d1d;color:#ffdede;padding:10px;border-radius:10px;margin-top:10px}
-    .ok{background:#122a1a;border:1px solid #1d6b36;color:#d5ffe6;padding:10px;border-radius:10px;margin-top:10px}
-    a{color:#6ef3a5}
+    .btn{display:inline-block;border:none;background:#6ef3a5;color:#04140b;font-weight:700;padding:10px 14px;border-radius:12px;font-size:15px;cursor:pointer;margin-top:10px}
+    table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}
+    th,td{border-bottom:1px solid #2a2a32;padding:8px 6px;text-align:left}
+    th{background:#1c1c22;font-weight:600}
+    tr:hover td{background:#1a1a1f}
+    .muted{opacity:.7;font-size:13px}
+    .qr{background:#fff;border-radius:10px;padding:6px;margin-top:6px}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Admin • Bars & Stats</h1>
-    <div class="grid">
-      <div class="card">
-        <h3>Add a bar</h3>
-        <label>Bar Code (unique, e.g. nav001)</label>
-        <input id="code" placeholder="nav001">
-        <label>Bar Name</label>
-        <input id="name" placeholder="Bar Navigli">
-        <button id="addBtn" class="btn">Create Bar</button>
-        <div id="addMsg" class="muted" style="margin-top:8px;"></div>
-      </div>
-
-      <div class="card">
-        <h3>Overall stats</h3>
-        <div>Claims: <b id="overallClaims">0</b></div>
-        <div>Redeemed: <b id="overallRedemptions">0</b></div>
-        <div class="muted" style="margin-top:8px;">Links use <code>/b/:code</code> which redirects to <code>/?bar=code</code></div>
-      </div>
+    <div class="card">
+      <h1>Admin • Free Drink Dashboard</h1>
+      <p class="muted">Manage bars and view all customer sign-ups</p>
     </div>
 
-    <div class="card" style="margin-top:16px;">
-      <h3>Per-bar performance</h3>
-      <table>
+    <div class="card">
+      <h2>Add New Bar</h2>
+      <label>Bar Code</label>
+      <input id="barCode" placeholder="e.g. nav001">
+      <label>Bar Name</label>
+      <input id="barName" placeholder="e.g. Bar Navigli">
+      <button id="addBar" class="btn">Add Bar</button>
+      <div id="barMsg" class="muted" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Existing Bars</h2>
+      <table id="barsTbl">
         <thead>
-          <tr><th>Bar</th><th>Code</th><th>Claims</th><th>Redeemed</th><th>Customer Link</th><th>Staff Link</th></tr>
+          <tr><th>Code</th><th>Name</th><th>Active</th><th>Created</th><th>Customer Link</th><th>QR</th></tr>
         </thead>
-        <tbody id="barsTbody"></tbody>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Customer Sign-ups</h2>
+      <table id="claimsTbl">
+        <thead>
+          <tr>
+            <th>Bar</th>
+            <th>Name</th>
+            <th>Phone</th>
+            <th>Email</th>
+            <th>DOB</th>
+            <th>Status</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
       </table>
     </div>
   </div>
 
   <script>
-    const addBtn = document.getElementById('addBtn');
-    const addMsg = document.getElementById('addMsg');
-    const codeEl = document.getElementById('code');
-    const nameEl = document.getElementById('name');
-
-    async function loadOverall() {
-      const r = await fetch('/api/stats');
-      const j = await r.json();
-      document.getElementById('overallClaims').textContent = j.claims || 0;
-      document.getElementById('overallRedemptions').textContent = j.redemptions || 0;
-    }
+    const addBarBtn = document.getElementById('addBar');
+    const msg = document.getElementById('barMsg');
+    const barsBody = document.querySelector('#barsTbl tbody');
+    const claimsBody = document.querySelector('#claimsTbl tbody');
 
     async function loadBars() {
-      const r = await fetch('/api/bars');
-      const bars = await r.json();
-      const tbody = document.getElementById('barsTbody');
-      tbody.innerHTML = '';
-      for (const b of bars) {
-        const stats = await (await fetch('/api/stats?bar='+encodeURIComponent(b.code))).json();
+      const res = await fetch('/api/bars');
+      const bars = await res.json();
+      barsBody.innerHTML = '';
+      bars.forEach(b => {
         const tr = document.createElement('tr');
-        const customerLink = `/b/${encodeURIComponent(b.code)}`;
-        const staffLink = `/staff.html?bar=${encodeURIComponent(b.code)}`;
         tr.innerHTML = `
-          <td>${b.name}</td>
           <td>${b.code}</td>
-          <td>${stats.claims || 0}</td>
-          <td>${stats.redemptions || 0}</td>
-          <td><a href="${customerLink}" target="_blank">${location.origin}${customerLink}</a></td>
-          <td><a href="${staffLink}" target="_blank">${location.origin}${staffLink}</a></td>
+          <td>${b.name}</td>
+          <td>${b.active ? '✅' : '❌'}</td>
+          <td>${new Date(b.created_at).toLocaleString()}</td>
+          <td><a href="/b/${b.code}" target="_blank">/b/${b.code}</a></td>
+          <td><img class="qr" width="60" src="https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=https://free-drink-qr.onrender.com/b/${b.code}"></td>
         `;
-        tbody.appendChild(tr);
-      }
+        barsBody.appendChild(tr);
+      });
     }
 
-    async function createBar() {
-      addMsg.textContent = 'Creating...';
-      const code = codeEl.value.trim();
-      const name = nameEl.value.trim();
-      if (!code || !name) {
-        addMsg.textContent = 'Enter both code and name.';
-        return;
-      }
-      const r = await fetch('/api/bars', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
+    async function loadClaims() {
+      const res = await fetch('/api/claims');
+      const claims = await res.json();
+      claimsBody.innerHTML = '';
+      claims.forEach(c => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${c.bar}</td>
+          <td>${c.name || '-'}</td>
+          <td>${c.phone || '-'}</td>
+          <td>${c.email || '-'}</td>
+          <td>${c.dob ? new Date(c.dob).toLocaleDateString() : '-'}</td>
+          <td>${c.status}</td>
+          <td>${new Date(c.created_at).toLocaleString()}</td>
+        `;
+        claimsBody.appendChild(tr);
+      });
+    }
+
+    addBarBtn.addEventListener('click', async () => {
+      const code = document.getElementById('barCode').value.trim();
+      const name = document.getElementById('barName').value.trim();
+      if (!code || !name) { msg.textContent = 'Enter both code and name'; return; }
+      msg.textContent = 'Adding...';
+      const res = await fetch('/api/bars', {
+        method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ code, name })
       });
-      const j = await r.json();
-      if (!r.ok || !j.ok) {
-        addMsg.textContent = j.error === 'code_taken' ? 'Code already in use.' : 'Failed to create bar.';
-        return;
+      if (res.ok) {
+        msg.textContent = '✅ Added successfully';
+        loadBars();
+      } else {
+        const j = await res.json();
+        msg.textContent = '❌ ' + (j.error || 'Error');
       }
-      addMsg.textContent = 'Bar created ✅';
-      codeEl.value = ''; nameEl.value = '';
-      await loadBars();
-    }
+    });
 
-    addBtn.addEventListener('click', createBar);
-
-    (async function init(){
-      await loadOverall();
-      await loadBars();
-    })();
+    loadBars();
+    loadClaims();
   </script>
 </body>
 </html>
