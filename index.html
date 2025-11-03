@@ -1,58 +1,82 @@
-
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Free Drink QR</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="styles.css"/>
+  <meta charset="utf-8">
+  <title>Free Drink</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html,body{margin:0;padding:0;font-family:system-ui,Arial,Helvetica,sans-serif;background:#0f0f12;color:#f4f4f7;}
+    .wrap{max-width:520px;margin:0 auto;padding:32px;}
+    .card{background:#17171c;border:1px solid #2a2a32;border-radius:16px;padding:24px;}
+    h1{margin:0 0 8px;font-size:28px}
+    p{opacity:.85;line-height:1.5}
+    .barTag{display:inline-block;background:#22232b;border:1px solid #2e2f39;padding:6px 10px;border-radius:8px;font-size:13px;opacity:.95}
+    .btn{display:inline-block;border:none;background:#6ef3a5;color:#04140b;font-weight:700;padding:14px 16px;border-radius:12px;font-size:16px;cursor:pointer;margin-top:12px}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .note{font-size:12px;opacity:.7;margin-top:10px}
+    .error{background:#2a1212;border:1px solid #6b1d1d;color:#ffdede;padding:12px;border-radius:10px;margin-bottom:12px}
+    .ok{background:#122a1a;border:1px solid #1d6b36;color:#d5ffe6;padding:12px;border-radius:10px;margin-top:12px}
+  </style>
 </head>
-<body class="bg-slate-50 text-slate-900">
-<div class="max-w-3xl mx-auto p-4 md:p-8">
-<h1 class="text-2xl md:text-3xl font-bold">Student Night — Free Drink</h1>
-<p class="text-sm text-slate-500 mb-4" id="date"></p>
-<script>
-document.getElementById('date').textContent = new Date().toLocaleDateString();
-</script>
-
-<div class="bg-white shadow rounded-2xl p-5">
-  <h2 class="text-xl font-semibold mb-2">Claim your free drink</h2>
-  <p class="text-sm text-slate-600 mb-4">Fill your details. Must be 18+ with valid ID. One per person.</p>
-  <div id="form-area">
-    <div class="space-y-3">
-      <div>
-        <label class="block text-sm mb-1">Full name</label>
-        <input id="name" class="w-full border rounded px-3 py-2" placeholder="Alex Student"/>
-      </div>
-      <div>
-        <label class="block text-sm mb-1">Mobile number</label>
-        <input id="phone" class="w-full border rounded px-3 py-2" placeholder="+39 3xx xxx xxxx"/>
-      </div>
-      <div>
-        <label class="block text-sm mb-1">Date of birth</label>
-        <input id="dob" type="date" class="w-full border rounded px-3 py-2"/>
-      </div>
-      <div>
-        <label class="inline-flex items-start gap-2 text-sm">
-          <input id="consent" type="checkbox" class="mt-1"/>
-          <span>I’m at least 18 and agree to receive event messages.</span>
-        </label>
-      </div>
-      <button id="claimBtn" class="w-full bg-black text-white rounded py-2">Get my free drink QR</button>
-      <p id="error" class="text-red-600 text-sm"></p>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Claim your free drink 🍹</h1>
+      <p>Show this at the bar to redeem. One per person.</p>
+      <div id="barTag" class="barTag" style="display:none;"></div>
+      <div id="errBox" class="error" style="display:none;"></div>
+      <button id="claimBtn" class="btn">Get Free Drink</button>
+      <div id="okBox" class="ok" style="display:none;"></div>
+      <p class="note">By continuing you agree to venue house rules and age requirements.</p>
     </div>
   </div>
-  <div id="qr-area" class="hidden text-center space-y-3">
-    <div id="qrcode" class="inline-block bg-white p-4 rounded shadow"></div>
-    <input id="redeemUrl" class="w-full border rounded px-3 py-2 text-xs" readonly/>
-    <p class="text-xs text-slate-500">Keep this page open. Staff will scan and mark it redeemed.</p>
-  </div>
-</div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="script-guest.js"></script>
+  <script>
+    const qs = new URLSearchParams(location.search);
+    const bar = qs.get('bar'); // e.g. 'nav001'
 
-</div>
+    const claimBtn = document.getElementById('claimBtn');
+    const barTag = document.getElementById('barTag');
+    const errBox = document.getElementById('errBox');
+    const okBox  = document.getElementById('okBox');
+
+    // Show which bar this link belongs to
+    if (bar) {
+      barTag.style.display = 'inline-block';
+      barTag.textContent = `Bar Code: ${bar}`;
+    } else {
+      errBox.style.display = 'block';
+      errBox.textContent = 'This link is missing a bar code. Ask staff for a new QR.';
+      claimBtn.disabled = true;
+    }
+
+    async function claimFreeDrink(source='tiktok1') {
+      errBox.style.display = 'none';
+      okBox.style.display = 'none';
+      claimBtn.disabled = true;
+
+      try {
+        const r = await fetch('/api/claim', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ bar, source })
+        });
+        const j = await r.json();
+        if (!r.ok || !j.ok) {
+          throw new Error(j.error || 'Could not claim');
+        }
+        okBox.style.display = 'block';
+        okBox.textContent = 'Claim created. Show the next screen to staff.';
+        // Send user to staff page to redeem (same device flow)
+        location.href = `/staff.html?bar=${encodeURIComponent(bar)}&nonce=${encodeURIComponent(j.nonce)}`;
+      } catch (e) {
+        errBox.style.display = 'block';
+        errBox.textContent = e.message || 'Something went wrong.';
+        claimBtn.disabled = false;
+      }
+    }
+
+    claimBtn.addEventListener('click', () => claimFreeDrink('tiktok1'));
+  </script>
 </body>
 </html>
