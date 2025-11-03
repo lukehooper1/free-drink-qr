@@ -1,52 +1,123 @@
-
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Free Drink QR</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<link rel="stylesheet" href="styles.css"/>
+  <meta charset="utf-8">
+  <title>Admin • Bars & Stats</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html,body{margin:0;padding:0;font-family:system-ui,Arial,Helvetica,sans-serif;background:#0f0f12;color:#f4f4f7;}
+    .wrap{max-width:900px;margin:0 auto;padding:32px}
+    h1{margin:0 0 6px;font-size:26px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+    .card{background:#17171c;border:1px solid #2a2a32;border-radius:16px;padding:20px}
+    label{display:block;margin-top:10px;margin-bottom:6px;opacity:.85}
+    input{width:100%;padding:10px;border-radius:10px;border:1px solid #2a2a32;background:#111118;color:#fff}
+    .btn{display:inline-block;border:none;background:#6ef3a5;color:#04140b;font-weight:700;padding:10px 12px;border-radius:10px;font-size:15px;cursor:pointer;margin-top:12px}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:10px;border-bottom:1px solid #2a2a32;text-align:left}
+    .muted{opacity:.7}
+    .error{background:#2a1212;border:1px solid #6b1d1d;color:#ffdede;padding:10px;border-radius:10px;margin-top:10px}
+    .ok{background:#122a1a;border:1px solid #1d6b36;color:#d5ffe6;padding:10px;border-radius:10px;margin-top:10px}
+    a{color:#6ef3a5}
+  </style>
 </head>
-<body class="bg-slate-50 text-slate-900">
-<div class="max-w-3xl mx-auto p-4 md:p-8">
-<h1 class="text-2xl md:text-3xl font-bold">Student Night — Free Drink</h1>
-<p class="text-sm text-slate-500 mb-4" id="date"></p>
-<script>
-document.getElementById('date').textContent = new Date().toLocaleDateString();
-</script>
+<body>
+  <div class="wrap">
+    <h1>Admin • Bars & Stats</h1>
+    <div class="grid">
+      <div class="card">
+        <h3>Add a bar</h3>
+        <label>Bar Code (unique, e.g. nav001)</label>
+        <input id="code" placeholder="nav001">
+        <label>Bar Name</label>
+        <input id="name" placeholder="Bar Navigli">
+        <button id="addBtn" class="btn">Create Bar</button>
+        <div id="addMsg" class="muted" style="margin-top:8px;"></div>
+      </div>
 
-<div class="bg-white shadow rounded-2xl p-5">
-  <div class="flex items-center justify-between mb-3">
-    <h2 class="text-xl font-semibold">Admin Dashboard</h2>
-    <a href="/staff.html" class="text-sm underline">Staff</a>
+      <div class="card">
+        <h3>Overall stats</h3>
+        <div>Claims: <b id="overallClaims">0</b></div>
+        <div>Redeemed: <b id="overallRedemptions">0</b></div>
+        <div class="muted" style="margin-top:8px;">Links use <code>/b/:code</code> which redirects to <code>/?bar=code</code></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h3>Per-bar performance</h3>
+      <table>
+        <thead>
+          <tr><th>Bar</th><th>Code</th><th>Claims</th><th>Redeemed</th><th>Customer Link</th><th>Staff Link</th></tr>
+        </thead>
+        <tbody id="barsTbody"></tbody>
+      </table>
+    </div>
   </div>
-  <div class="flex items-center gap-2 mb-4">
-    <label class="text-sm">Range</label>
-    <select id="range" class="border rounded px-2 py-1 text-sm">
-      <option value="today">Today</option>
-      <option value="7d">Last 7 days</option>
-      <option value="30d">Last 30 days</option>
-    </select>
-    <button id="refresh" class="bg-slate-200 px-3 py-2 rounded text-sm">Refresh</button>
-    <button id="export" class="bg-slate-800 text-white px-3 py-2 rounded text-sm">Export CSV</button>
-  </div>
 
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-    <div class="p-3 rounded border"><div class="text-xs text-slate-500">QR Scans</div><div id="k-scans" class="text-2xl font-bold">—</div></div>
-    <div class="p-3 rounded border"><div class="text-xs text-slate-500">Signups</div><div id="k-signups" class="text-2xl font-bold">—</div></div>
-    <div class="p-3 rounded border"><div class="text-xs text-slate-500">Redemptions</div><div id="k-reds" class="text-2xl font-bold">—</div></div>
-    <div class="p-3 rounded border"><div class="text-xs text-slate-500">Conversion</div><div id="k-conv" class="text-2xl font-bold">—</div></div>
-  </div>
+  <script>
+    const addBtn = document.getElementById('addBtn');
+    const addMsg = document.getElementById('addMsg');
+    const codeEl = document.getElementById('code');
+    const nameEl = document.getElementById('name');
 
-  <h3 class="font-semibold mb-2">Recent activity</h3>
-  <div class="overflow-x-auto"><table class="w-full text-sm" id="table"><thead><tr class="text-left border-b">
-    <th class="py-2 pr-2">Time</th><th class="py-2 pr-2">Name</th><th class="py-2 pr-2">Phone</th><th class="py-2">Status</th>
-  </tr></thead><tbody id="tbody"></tbody></table></div>
-</div>
+    async function loadOverall() {
+      const r = await fetch('/api/stats');
+      const j = await r.json();
+      document.getElementById('overallClaims').textContent = j.claims || 0;
+      document.getElementById('overallRedemptions').textContent = j.redemptions || 0;
+    }
 
-<script src="script-admin.js"></script>
+    async function loadBars() {
+      const r = await fetch('/api/bars');
+      const bars = await r.json();
+      const tbody = document.getElementById('barsTbody');
+      tbody.innerHTML = '';
+      for (const b of bars) {
+        const stats = await (await fetch('/api/stats?bar='+encodeURIComponent(b.code))).json();
+        const tr = document.createElement('tr');
+        const customerLink = `/b/${encodeURIComponent(b.code)}`;
+        const staffLink = `/staff.html?bar=${encodeURIComponent(b.code)}`;
+        tr.innerHTML = `
+          <td>${b.name}</td>
+          <td>${b.code}</td>
+          <td>${stats.claims || 0}</td>
+          <td>${stats.redemptions || 0}</td>
+          <td><a href="${customerLink}" target="_blank">${location.origin}${customerLink}</a></td>
+          <td><a href="${staffLink}" target="_blank">${location.origin}${staffLink}</a></td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
 
-</div>
+    async function createBar() {
+      addMsg.textContent = 'Creating...';
+      const code = codeEl.value.trim();
+      const name = nameEl.value.trim();
+      if (!code || !name) {
+        addMsg.textContent = 'Enter both code and name.';
+        return;
+      }
+      const r = await fetch('/api/bars', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ code, name })
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        addMsg.textContent = j.error === 'code_taken' ? 'Code already in use.' : 'Failed to create bar.';
+        return;
+      }
+      addMsg.textContent = 'Bar created ✅';
+      codeEl.value = ''; nameEl.value = '';
+      await loadBars();
+    }
+
+    addBtn.addEventListener('click', createBar);
+
+    (async function init(){
+      await loadOverall();
+      await loadBars();
+    })();
+  </script>
 </body>
 </html>
