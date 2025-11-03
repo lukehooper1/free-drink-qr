@@ -2,65 +2,57 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Staff • Redeem Free Drink</title>
+  <title>Staff • Redeem</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    html,body{margin:0;padding:0;font-family:system-ui,Arial,Helvetica,sans-serif;background:#0f0f12;color:#f4f4f7;}
-    .wrap{max-width:520px;margin:0 auto;padding:32px;}
-    .card{background:#17171c;border:1px solid #2a2a32;border-radius:16px;padding:24px;}
+    html,body{margin:0;padding:0;background:#0f0f12;color:#f4f4f7;font-family:system-ui,Arial}
+    .wrap{max-width:520px;margin:0 auto;padding:28px}
+    .card{background:#17171c;border:1px solid #2a2a32;border-radius:16px;padding:22px}
     h1{margin:0 0 12px;font-size:24px}
-    .barTag{display:inline-block;background:#22232b;border:1px solid #2e2f39;padding:6px 10px;border-radius:8px;font-size:13px;opacity:.95}
-    label{display:block;margin-top:14px;margin-bottom:6px;opacity:.85}
+    .barTag{display:inline-block;background:#22232b;border:1px solid #2e2f39;padding:6px 10px;border-radius:8px;font-size:13px;margin-bottom:8px}
+    label{display:block;margin-top:10px;margin-bottom:6px;opacity:.9}
     input{width:100%;padding:12px;border-radius:10px;border:1px solid #2a2a32;background:#111118;color:#fff}
-    .btn{display:inline-block;border:none;background:#6ef3a5;color:#04140b;font-weight:700;padding:12px 14px;border-radius:12px;font-size:16px;cursor:pointer;margin-top:14px}
-    .error{background:#2a1212;border:1px solid #6b1d1d;color:#ffdede;padding:12px;border-radius:10px;margin-top:12px}
-    .ok{background:#122a1a;border:1px solid #1d6b36;color:#d5ffe6;padding:12px;border-radius:10px;margin-top:12px}
-    .note{font-size:12px;opacity:.7;margin-top:10px}
+    .btn{display:inline-block;border:none;background:#6ef3a5;color:#04140b;font-weight:700;padding:12px 14px;border-radius:12px;font-size:16px;cursor:pointer;margin-top:12px}
+    .error{background:#2a1212;border:1px solid #6b1d1d;color:#ffdede;padding:10px;border-radius:10px;margin-top:10px}
+    .ok{background:#122a1a;border:1px solid #1d6b36;color:#d5ffe6;padding:10px;border-radius:10px;margin-top:10px}
+    #reader{width:100%;margin-top:12px}
   </style>
+  <!-- QR scanner library -->
+  <script src="https://unpkg.com/html5-qrcode" defer></script>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
       <h1>Staff • Redeem</h1>
-      <div id="barTag" class="barTag" style="margin-bottom:10px;"></div>
+      <div id="barTag" class="barTag"></div>
 
-      <label for="nonce">Enter code (auto-filled if guest handed over phone)</label>
-      <input id="nonce" placeholder="Paste/scan code here">
+      <label>Scan customer QR</label>
+      <div id="reader"></div>
+
+      <label style="margin-top:14px;">Or paste code manually</label>
+      <input id="nonce" placeholder="One-time code">
       <button id="redeemBtn" class="btn">Redeem</button>
 
-      <div id="errBox" class="error" style="display:none;"></div>
-      <div id="okBox" class="ok" style="display:none;"></div>
-      <p class="note">This page only redeems codes created for your bar’s link.</p>
+      <div id="err" class="error" style="display:none;"></div>
+      <div id="ok" class="ok" style="display:none;"></div>
     </div>
   </div>
 
   <script>
     const qs = new URLSearchParams(location.search);
-    const staffBar = qs.get('bar');          // required
-    const prefill  = qs.get('nonce') || '';  // optional
+    const staffBar = qs.get('bar');
 
-    const barTag  = document.getElementById('barTag');
+    const barTag = document.getElementById('barTag');
     const nonceEl = document.getElementById('nonce');
-    const errBox  = document.getElementById('errBox');
-    const okBox   = document.getElementById('okBox');
-    const btn     = document.getElementById('redeemBtn');
+    const err = document.getElementById('err');
+    const ok = document.getElementById('ok');
+    const btn = document.getElementById('redeemBtn');
 
-    if (!staffBar) {
-      barTag.textContent = 'Missing bar code in URL (use your bar’s QR link).';
-    } else {
-      barTag.textContent = `Bar Code: ${staffBar}`;
-    }
-    if (prefill) nonceEl.value = prefill;
+    barTag.textContent = staffBar ? `Bar Code: ${staffBar}` : 'Missing ?bar= in URL';
 
-    async function redeem() {
-      errBox.style.display='none'; okBox.style.display='none';
+    async function redeem(nonce) {
+      err.style.display='none'; ok.style.display='none';
       btn.disabled = true;
-      const nonce = nonceEl.value.trim();
-      if (!nonce || !staffBar) {
-        errBox.style.display='block';
-        errBox.textContent = 'Missing code or bar.';
-        btn.disabled=false; return;
-      }
       try {
         const r = await fetch('/api/redeem', {
           method:'POST',
@@ -69,19 +61,44 @@
         });
         const j = await r.json();
         if (!r.ok || !j.ok) throw new Error(j.error || 'Redeem failed');
-        okBox.style.display='block';
-        okBox.textContent = 'Redeemed ✅';
+        ok.style.display='block';
+        ok.textContent = 'Redeemed ✅';
       } catch(e) {
-        errBox.style.display='block';
-        errBox.textContent = String(e.message || 'Error');
+        err.style.display='block';
+        err.textContent = String(e.message || 'Error');
       } finally {
         btn.disabled = false;
       }
     }
 
-    btn.addEventListener('click', redeem);
-    nonceEl.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter') redeem();
+    btn.addEventListener('click', () => {
+      const n = nonceEl.value.trim();
+      if (!n) { err.style.display='block'; err.textContent='Enter a code'; return; }
+      redeem(n);
+    });
+
+    // Start scanner after library loads
+    window.addEventListener('load', () => {
+      if (!window.Html5Qrcode || !staffBar) return;
+      const html5QrCode = new Html5Qrcode("reader");
+      Html5Qrcode.getCameras().then(cams => {
+        const camId = (cams && cams[0]) ? cams[0].id : null;
+        if (!camId) return;
+        html5QrCode.start(
+          camId,
+          { fps: 10, qrbox: { width: 240, height: 240 } },
+          (decodedText) => {
+            // We encoded just the nonce on the customer QR
+            const n = decodedText.trim();
+            if (n) {
+              nonceEl.value = n;
+              html5QrCode.stop();
+              redeem(n);
+            }
+          },
+          (errMsg) => { /* ignore scan errors */ }
+        );
+      }).catch(() => {});
     });
   </script>
 </body>
