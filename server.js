@@ -1,213 +1,155 @@
-import express from "express";
-import fs from "fs";
-import path from "path";
-import crypto from "crypto";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// server.js
+import fs from 'fs';
+import path from 'path';
+import express from 'express';
+import Database from 'better-sqlite3';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// --- Ensure data directory exists
+const dataDir = path.join(process.cwd(), 'data');
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+
+// --- Open DB
+const db = new Database(path.join(dataDir, 'data.db'));
+
+// --- Create schema if missing
+db.exec(`
+CREATE TABLE IF NOT EXISTS bars (
+  id TEXT PRIMARY KEY,
+  code TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS claims (
+  id TEXT PRIMARY KEY,
+  bar_code TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('issued','redeemed','void')) DEFAULT 'issued',
+  nonce TEXT UNIQUE NOT NULL,
+  source TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY(bar_code) REFERENCES bars(code)
+);
+`);
+
+// --- Seed a bar if empty (so you can test)
+const barCount = db.prepare(`SELECT COUNT(*) AS c FROM bars`).get().c;
+if (barCount === 0) {
+  db.prepare(`INSERT INTO bars (id, code, name) VALUES (@id, @code, @name)`)
+    .run({ id: cryptoRandom(), code: 'nav001', name: 'Bar Navigli' });
+  console.log('Seeded default bar: nav001 (Bar Navigli)');
+}
+
+// --- Helpers
+function cryptoRandom() {
+  // simple random id
+  return 'id_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
 app.use(express.json());
-app.use(express.static(__dirname)); // serve html/js/css from repo root
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(process.cwd(), 'public')));
 
-// ---------- simple file store ----------
-const STORE_PATH = path.join(__dirname, "store.json");
-function loadStore() {
+// --- Pretty link: /b/:code -> /?bar=code
+app.get('/b/:code', (req, res) => {
+  const code = req.params.code;
+  const row = db.prepare(`SELECT 1 FROM bars WHERE code=? AND active=1`).get(code);
+  if (!row) return res.status(404).send('Invalid bar code');
+  res.redirect('/?bar=' + encodeURIComponent(code));
+});
+
+// --- API: create claim (guest presses "Get Free Drink")
+app.post('/api/claim', (req, res) => {
   try {
-    return JSON.parse(fs.readFileSync(STORE_PATH, "utf-8"));
-  } catch {
-    return { campaigns: [], claims: [], redemptions: [], scans: [] };
+    const { bar, source } = req.body;
+    if (!bar) return res.status(400).json({ error: 'missing_bar' });
+    const ok = db.prepare(`SELECT 1 FROM bars WHERE code=? AND active=1`).get(bar);
+    if (!ok) return res.status(400).json({ error: 'unknown_bar' });
+
+    const nonce = cryptoRandom();
+    db.prepare(`
+      INSERT INTO claims (id, bar_code, status, nonce, source)
+      VALUES (@id, @bar_code, 'issued', @nonce, @source)
+    `).run({
+      id: cryptoRandom(),
+      bar_code: bar,
+      nonce,
+      source: source || null
+    });
+
+    res.json({ ok: true, nonce });
+  } catch (e) {
+    console.error('claim_failed', e);
+    res.status(500).json({ error: 'claim_failed' });
   }
-}
-function saveStore(store) {
-  fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2));
-}
-let store = loadStore();
-if (store.campaigns.length === 0) {
-  store.campaigns.push({
-    id: 1,
-    name: "Student Night",
-    free_item: "Free Shot",
-    start_time: new Date(Date.now() - 3600_000).toISOString(),
-    end_time: new Date(Date.now() + 6 * 3600_000).toISOString(),
-  });
-  saveStore(store);
-}
-
-// ---------- helpers ----------
-const nowIso = () => new Date().toISOString();
-const genToken = () => crypto.randomBytes(24).toString("hex");
-function genShortCode() {
-  // 7-char base36 code like FD-3K9T7Q (prefix optional)
-  const n = BigInt("0x" + crypto.randomBytes(5).toString("hex")); // 40 bits
-  return "FD-" + n.toString(36).toUpperCase().padStart(7, "0");
-}
-function isOverAge(dobStr, legal = 18) {
-  const dob = new Date(dobStr);
-  if (isNaN(dob)) return false;
-  const years = Math.floor((Date.now() - dob.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
-  return years >= legal;
-}
-
-// ---------- routes ----------
-app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "index.html")));
-
-app.post("/api/track/scan", (req, res) => {
-  const { source = "poster", campaign_id = 1 } = req.body || {};
-  store.scans.push({ t: nowIso(), source, campaign_id });
-  saveStore(store);
-  res.json({ ok: true });
 });
 
-app.post("/api/claim", (req, res) => {
-  const { campaign_id = 1, name, phone, dob, instagram_handle, source = "poster" } = req.body || {};
-  if (!name || !phone || !dob) return res.status(400).json({ error: "Missing fields" });
-  if (!isOverAge(dob, 18)) return res.status(400).json({ error: "Under legal drinking age" });
+// --- API: redeem (staff confirms on their bar)
+app.post('/api/redeem', (req, res) => {
+  try {
+    const { nonce, staffBar } = req.body;
+    if (!nonce || !staffBar) return res.status(400).json({ error: 'missing_params' });
 
-  // one per phone per day
-  const today = new Date().toDateString();
-  const dup = store.claims.find(c => c.phone === phone && new Date(c.created_at).toDateString() === today);
-  if (dup) return res.status(400).json({ error: "You already claimed today" });
+    const claim = db.prepare(`SELECT bar_code, status, created_at FROM claims WHERE nonce=?`).get(nonce);
+    if (!claim) return res.status(404).json({ error: 'not_found' });
+    if (claim.status === 'redeemed') return res.status(409).json({ error: 'already_redeemed' });
+    if (claim.bar_code !== staffBar) return res.status(403).json({ error: 'wrong_bar' });
 
-  const token = genToken();
-  let short_code = genShortCode();
-  while (store.claims.find(c => c.short_code === short_code)) short_code = genShortCode();
+    // Optional expiry check: 24h
+    // if (new Date(claim.created_at) < new Date(Date.now() - 24*60*60*1000)) {
+    //   return res.status(410).json({ error: 'expired' });
+    // }
 
-  const token_expires = new Date(Date.now() + 6 * 3600_000).toISOString();
-  const claim = {
-    id: store.claims.length + 1,
-    campaign_id,
-    name,
-    phone,
-    dob,
-    instagram_handle,
-    age_verified: true,
-    token,
-    short_code,               // <-- NEW
-    token_expires,
-    created_at: nowIso(),
-    redeemed_at: null,
-    redeemed_by: null,
-    source,
-  };
-  store.claims.push(claim);
-  saveStore(store);
-
-  const short_url = `${req.protocol}://${req.get("host")}/t/${encodeURIComponent(short_code)}`;
-  res.json({ success: true, token, short_code, short_url });
+    db.prepare(`UPDATE claims SET status='redeemed' WHERE nonce=?`).run(nonce);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('redeem_failed', e);
+    res.status(500).json({ error: 'redeem_failed' });
+  }
 });
 
-// Resolve short URL to staff page (handy if someone scans guest QR in staff mode)
-app.get("/t/:code", (_req, res) => {
-  // just send staff page; the scanner reads the code itself
-  res.sendFile(path.join(__dirname, "staff.html"));
+// --- API: stats (overall or per bar via ?bar=code)
+app.get('/api/stats', (req, res) => {
+  const { bar } = req.query;
+  let where = '';
+  let arg = [];
+  if (bar) { where = 'WHERE bar_code=?'; arg = [bar]; }
+
+  const totals = db.prepare(`
+    SELECT 
+      COUNT(*) AS claims,
+      SUM(CASE WHEN status='redeemed' THEN 1 ELSE 0 END) AS redemptions
+    FROM claims
+    ${where}
+  `).get(...arg);
+
+  res.json(totals || { claims: 0, redemptions: 0 });
 });
 
-// Helper to find claim by either token OR short code
-function findClaimByAny(input) {
-  if (!input) return null;
-  const clean = String(input).trim();
-  return (
-    store.claims.find(c => c.token === clean) ||
-    store.claims.find(c => c.short_code === clean) ||
-    null
-  );
-}
-
-// Staff preview (accepts token OR short code in ?token=)
-app.get("/api/admin/preview", (req, res) => {
-  const input = req.query.token || req.query.code;
-  const c = findClaimByAny(input);
-  if (!input) return res.status(400).json({ error: "Missing token" });
-  if (!c) return res.status(404).json({ error: "Invalid token" });
-  const campaign = store.campaigns.find(k => k.id === c.campaign_id);
-  res.json({
-    name: c.name,
-    phone: c.phone,
-    campaign_name: campaign?.name || String(c.campaign_id),
-    token_expires: c.token_expires,
-    redeemed_at: c.redeemed_at,
-    created_at: c.created_at,
-  });
+// --- API: list bars
+app.get('/api/bars', (_req, res) => {
+  const rows = db.prepare(`SELECT code, name, active, created_at FROM bars ORDER BY created_at DESC`).all();
+  res.json(rows);
 });
 
-// Redeem (accepts token OR short code)
-app.post("/api/redeem", (req, res) => {
-  const { token, staff_id = "staff", device_lat, device_lng } = req.body || {};
-  const c = findClaimByAny(token);
-  if (!token) return res.status(400).json({ error: "Missing token" });
-  if (!c) return res.status(404).json({ error: "Invalid token" });
-  if (c.redeemed_at) return res.status(400).json({ error: "Already redeemed" });
-  if (new Date() > new Date(c.token_expires)) return res.status(400).json({ error: "Token expired" });
-
-  c.redeemed_at = nowIso();
-  c.redeemed_by = staff_id;
-  store.redemptions.push({
-    id: store.redemptions.length + 1,
-    claim_id: c.id,
-    staff_id,
-    redeemed_at: c.redeemed_at,
-    device_lat,
-    device_lng,
-  });
-  saveStore(store);
-  res.json({ success: true, name: c.name, redeemed_at: c.redeemed_at });
-});
-
-app.get("/api/admin/stats", (req, res) => {
-  const { campaign_id = 1, range = "today" } = req.query;
-  const now = new Date();
-  let start = new Date(now);
-  if (range === "today") start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (range === "7d") start = new Date(now.getTime() - 7 * 86400000);
-  if (range === "30d") start = new Date(now.getTime() - 30 * 86400000);
-
-  const scans = store.scans.filter(s => new Date(s.t) >= start && s.campaign_id == campaign_id);
-  const claims = store.claims.filter(c => new Date(c.created_at) >= start && c.campaign_id == campaign_id);
-  const reds = store.redemptions.filter(r => new Date(r.redeemed_at) >= start);
-
-  const byHour = {};
-  const bucket = d => `${new Date(d).getHours()}:00`;
-  scans.forEach(s => { const k = bucket(s.t); byHour[k] = byHour[k] || { t: k, scans: 0, signups: 0, redemptions: 0 }; byHour[k].scans++; });
-  claims.forEach(c => { const k = bucket(c.created_at); byHour[k] = byHour[k] || { t: k, scans: 0, signups: 0, redemptions: 0 }; byHour[k].signups++; });
-  reds.forEach(r => { const k = bucket(r.redeemed_at); byHour[k] = byHour[k] || { t: k, scans: 0, signups: 0, redemptions: 0 }; byHour[k].redemptions++; });
-
-  const series = Object.values(byHour).sort((a, b) => parseInt(a.t) - parseInt(b.t));
-  const totals = {
-    scans: scans.length,
-    signups: claims.length,
-    redemptions: reds.length,
-    conversion: claims.length ? Math.round((reds.length / claims.length) * 100) : 0,
-  };
-  res.json({ totals, series });
-});
-
-app.get("/api/admin/recent", (req, res) => {
-  const { campaign_id = 1, range = "today" } = req.query;
-  const now = new Date();
-  let start = new Date(now);
-  if (range === "today") start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (range === "7d") start = new Date(now.getTime() - 7 * 86400000);
-  if (range === "30d") start = new Date(now.getTime() - 30 * 86400000);
-
-  const rows = store.claims
-    .filter(c => new Date(c.created_at) >= start && c.campaign_id == campaign_id)
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    .slice(0, 50)
-    .map(c => ({
-      time: new Date(c.created_at).toLocaleString(),
-      name: c.name,
-      phone: c.phone,
-      status: c.redeemed_at ? "Redeemed" : "Unredeemed",
-      campaign_name: (store.campaigns.find(k => k.id === c.campaign_id)?.name) || String(c.campaign_id),
-    }));
-
-  res.json({ items: rows });
+// --- API: create bar (used by admin.html form)
+app.post('/api/bars', (req, res) => {
+  try {
+    const { code, name } = req.body;
+    if (!code || !name) return res.status(400).json({ error: 'missing_fields' });
+    db.prepare(`INSERT INTO bars (id, code, name, active) VALUES (@id, @code, @name, 1)`)
+      .run({ id: cryptoRandom(), code, name });
+    res.json({ ok: true });
+  } catch (e) {
+    if (String(e).includes('UNIQUE')) return res.status(409).json({ error: 'code_taken' });
+    console.error('create_bar_failed', e);
+    res.status(500).json({ error: 'create_bar_failed' });
+  }
 });
 
 app.listen(PORT, () => {
-  console.log(`Free Drink QR running on port ${PORT}`);
+  console.log(`Server running on :${PORT}`);
 });
