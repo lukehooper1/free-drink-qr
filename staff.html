@@ -1,65 +1,88 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Staff Scanner</title>
-
-  <!-- Local styling (create staff.css in your repo root) -->
-  <link rel="stylesheet" href="/staff.css?v=1">
-
+  <meta charset="utf-8">
+  <title>Staff • Redeem Free Drink</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    /* fallback styles if staff.css doesn’t load */
-    body {
-      background: #f6f7fb;
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial;
-      color: #0f172a;
-      margin: 0;
-    }
+    html,body{margin:0;padding:0;font-family:system-ui,Arial,Helvetica,sans-serif;background:#0f0f12;color:#f4f4f7;}
+    .wrap{max-width:520px;margin:0 auto;padding:32px;}
+    .card{background:#17171c;border:1px solid #2a2a32;border-radius:16px;padding:24px;}
+    h1{margin:0 0 12px;font-size:24px}
+    .barTag{display:inline-block;background:#22232b;border:1px solid #2e2f39;padding:6px 10px;border-radius:8px;font-size:13px;opacity:.95}
+    label{display:block;margin-top:14px;margin-bottom:6px;opacity:.85}
+    input{width:100%;padding:12px;border-radius:10px;border:1px solid #2a2a32;background:#111118;color:#fff}
+    .btn{display:inline-block;border:none;background:#6ef3a5;color:#04140b;font-weight:700;padding:12px 14px;border-radius:12px;font-size:16px;cursor:pointer;margin-top:14px}
+    .error{background:#2a1212;border:1px solid #6b1d1d;color:#ffdede;padding:12px;border-radius:10px;margin-top:12px}
+    .ok{background:#122a1a;border:1px solid #1d6b36;color:#d5ffe6;padding:12px;border-radius:10px;margin-top:12px}
+    .note{font-size:12px;opacity:.7;margin-top:10px}
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="wrap">
     <div class="card">
-      <div class="header">
-        <div class="h1">Staff Scanner</div>
-        <a href="/admin.html">Admin</a>
-      </div>
+      <h1>Staff • Redeem</h1>
+      <div id="barTag" class="barTag" style="margin-bottom:10px;"></div>
 
-      <!-- Staff ID -->
-      <div class="row">
-        <input id="staffId" class="input" placeholder="Staff ID" />
-        <button id="setStaff" class="btn dark">Set ID</button>
-        <span id="who" class="muted"></span>
-      </div>
+      <label for="nonce">Enter code (auto-filled if guest handed over phone)</label>
+      <input id="nonce" placeholder="Paste/scan code here">
+      <button id="redeemBtn" class="btn">Redeem</button>
 
-      <!-- Start Scanner Button -->
-      <button id="startScanner" class="btn dark">Start scanner</button>
-
-      <!-- Camera preview -->
-      <div class="video-wrap">
-        <video id="preview" class="video" playsinline muted></video>
-      </div>
-
-      <!-- Manual entry -->
-      <div class="row">
-        <input id="manual" class="input" placeholder="Manual token or short code (FD-XXXXXXX)" />
-        <button id="previewBtn" class="btn ghost">Preview</button>
-        <button id="redeemBtn" class="btn ok">Redeem</button>
-      </div>
-
-      <!-- Info + result -->
-      <div id="status" class="muted"></div>
-      <div id="result" class="result"></div>
-
-      <noscript class="text-red-600 text-sm">⚠️ JavaScript is disabled — please enable it.</noscript>
+      <div id="errBox" class="error" style="display:none;"></div>
+      <div id="okBox" class="ok" style="display:none;"></div>
+      <p class="note">This page only redeems codes created for your bar’s link.</p>
     </div>
   </div>
 
-  <!-- ZXing QR library -->
-  <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
+  <script>
+    const qs = new URLSearchParams(location.search);
+    const staffBar = qs.get('bar');          // required
+    const prefill  = qs.get('nonce') || '';  // optional
 
-  <!-- Staff scanner script (make sure this file exists in the ROOT) -->
-  <script src="/script-staff-umd.js?v=final1"></script>
+    const barTag  = document.getElementById('barTag');
+    const nonceEl = document.getElementById('nonce');
+    const errBox  = document.getElementById('errBox');
+    const okBox   = document.getElementById('okBox');
+    const btn     = document.getElementById('redeemBtn');
+
+    if (!staffBar) {
+      barTag.textContent = 'Missing bar code in URL (use your bar’s QR link).';
+    } else {
+      barTag.textContent = `Bar Code: ${staffBar}`;
+    }
+    if (prefill) nonceEl.value = prefill;
+
+    async function redeem() {
+      errBox.style.display='none'; okBox.style.display='none';
+      btn.disabled = true;
+      const nonce = nonceEl.value.trim();
+      if (!nonce || !staffBar) {
+        errBox.style.display='block';
+        errBox.textContent = 'Missing code or bar.';
+        btn.disabled=false; return;
+      }
+      try {
+        const r = await fetch('/api/redeem', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ nonce, staffBar })
+        });
+        const j = await r.json();
+        if (!r.ok || !j.ok) throw new Error(j.error || 'Redeem failed');
+        okBox.style.display='block';
+        okBox.textContent = 'Redeemed ✅';
+      } catch(e) {
+        errBox.style.display='block';
+        errBox.textContent = String(e.message || 'Error');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    btn.addEventListener('click', redeem);
+    nonceEl.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') redeem();
+    });
+  </script>
 </body>
 </html>
