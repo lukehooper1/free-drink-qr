@@ -2,81 +2,123 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Free Drink</title>
+  <title>Claim your free drink</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    html,body{margin:0;padding:0;font-family:system-ui,Arial,Helvetica,sans-serif;background:#0f0f12;color:#f4f4f7;}
-    .wrap{max-width:520px;margin:0 auto;padding:32px;}
-    .card{background:#17171c;border:1px solid #2a2a32;border-radius:16px;padding:24px;}
-    h1{margin:0 0 8px;font-size:28px}
-    p{opacity:.85;line-height:1.5}
-    .barTag{display:inline-block;background:#22232b;border:1px solid #2e2f39;padding:6px 10px;border-radius:8px;font-size:13px;opacity:.95}
-    .btn{display:inline-block;border:none;background:#6ef3a5;color:#04140b;font-weight:700;padding:14px 16px;border-radius:12px;font-size:16px;cursor:pointer;margin-top:12px}
-    .btn:disabled{opacity:.5;cursor:not-allowed}
-    .note{font-size:12px;opacity:.7;margin-top:10px}
-    .error{background:#2a1212;border:1px solid #6b1d1d;color:#ffdede;padding:12px;border-radius:10px;margin-bottom:12px}
-    .ok{background:#122a1a;border:1px solid #1d6b36;color:#d5ffe6;padding:12px;border-radius:10px;margin-top:12px}
+    html,body{margin:0;padding:0;background:#0f0f12;color:#f4f4f7;font-family:system-ui,Arial}
+    .wrap{max-width:520px;margin:0 auto;padding:28px}
+    .card{background:#17171c;border:1px solid #2a2a32;border-radius:16px;padding:22px}
+    h1{margin:0 0 8px;font-size:26px}
+    p{opacity:.9;line-height:1.5}
+    .error{background:#2a1212;border:1px solid #6b1d1d;color:#ffdede;padding:10px;border-radius:10px;margin:10px 0}
+    .ok{background:#122a1a;border:1px solid #1d6b36;color:#d5ffe6;padding:10px;border-radius:10px;margin:10px 0}
+    label{display:block;margin-top:10px;margin-bottom:6px;opacity:.9}
+    input{width:100%;padding:12px;border-radius:10px;border:1px solid #2a2a32;background:#111118;color:#fff}
+    .btn{display:inline-block;border:none;background:#6ef3a5;color:#04140b;font-weight:700;padding:12px 14px;border-radius:12px;font-size:16px;cursor:pointer;margin-top:14px}
+    .muted{font-size:12px;opacity:.7;margin-top:8px}
+    .center{display:flex;justify-content:center}
+    .qr{background:#fff;border-radius:12px;padding:12px}
+    .barTag{display:inline-block;background:#22232b;border:1px solid #2e2f39;padding:6px 10px;border-radius:8px;font-size:13px;margin:6px 0}
+    .codeBox{font-family:ui-monospace,Menlo,Consolas,monospace;background:#111118;border:1px dashed #2a2a32;border-radius:10px;padding:10px;margin-top:8px;text-align:center}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="card">
+    <div class="card" id="stepForm">
       <h1>Claim your free drink 🍹</h1>
-      <p>Show this at the bar to redeem. One per person.</p>
       <div id="barTag" class="barTag" style="display:none;"></div>
-      <div id="errBox" class="error" style="display:none;"></div>
-      <button id="claimBtn" class="btn">Get Free Drink</button>
-      <div id="okBox" class="ok" style="display:none;"></div>
-      <p class="note">By continuing you agree to venue house rules and age requirements.</p>
+      <div id="err" class="error" style="display:none;"></div>
+
+      <div id="missing" class="error" style="display:none;">This link is missing a bar code. Ask staff for the correct QR.</div>
+
+      <div id="formWrap" style="display:none;">
+        <label>Name</label>
+        <input id="name" placeholder="Your full name">
+        <label>Phone</label>
+        <input id="phone" placeholder="+39 3xx xxx xxxx">
+        <label>Email</label>
+        <input id="email" placeholder="you@email.com" type="email">
+        <label>Date of birth</label>
+        <input id="dob" type="date" max="">
+        <button id="submitBtn" class="btn">Get Free Drink</button>
+        <p class="muted">By continuing you agree to venue rules and age requirements.</p>
+      </div>
+    </div>
+
+    <div class="card" id="stepQR" style="display:none;">
+      <h2 style="margin:0 0 8px;font-size:20px">Show this QR to staff</h2>
+      <div class="center"><img id="qrImg" class="qr" width="220" height="220" alt="QR"></div>
+      <div class="codeBox">One-time code: <span id="nonceTxt"></span></div>
+      <p class="muted">Staff will scan this and redeem your drink.</p>
     </div>
   </div>
 
   <script>
     const qs = new URLSearchParams(location.search);
-    const bar = qs.get('bar'); // e.g. 'nav001'
-
-    const claimBtn = document.getElementById('claimBtn');
+    const bar = qs.get('bar');
     const barTag = document.getElementById('barTag');
-    const errBox = document.getElementById('errBox');
-    const okBox  = document.getElementById('okBox');
+    const err = document.getElementById('err');
+    const missing = document.getElementById('missing');
+    const formWrap = document.getElementById('formWrap');
+    const submitBtn = document.getElementById('submitBtn');
+    const dobInput = document.getElementById('dob');
 
-    // Show which bar this link belongs to
-    if (bar) {
+    // set max DOB (today - 18y) if you want to enforce 18+
+    const today = new Date();
+    const y18 = new Date(today.getFullYear()-18, today.getMonth(), today.getDate());
+    dobInput.max = y18.toISOString().slice(0,10);
+
+    if (!bar) {
+      missing.style.display = 'block';
+    } else {
       barTag.style.display = 'inline-block';
       barTag.textContent = `Bar Code: ${bar}`;
-    } else {
-      errBox.style.display = 'block';
-      errBox.textContent = 'This link is missing a bar code. Ask staff for a new QR.';
-      claimBtn.disabled = true;
+      formWrap.style.display = 'block';
     }
 
-    async function claimFreeDrink(source='tiktok1') {
-      errBox.style.display = 'none';
-      okBox.style.display = 'none';
-      claimBtn.disabled = true;
+    async function claim() {
+      err.style.display = 'none';
+      submitBtn.disabled = true;
+
+      const name = document.getElementById('name').value.trim();
+      const phone = document.getElementById('phone').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const dob = document.getElementById('dob').value; // YYYY-MM-DD
+
+      if (!name || !phone || !email || !dob) {
+        err.textContent = 'Please fill your name, phone, email and date of birth.';
+        err.style.display = 'block';
+        submitBtn.disabled = false;
+        return;
+      }
 
       try {
         const r = await fetch('/api/claim', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ bar, source })
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ bar, source:'form', name, phone, email, dob })
         });
         const j = await r.json();
-        if (!r.ok || !j.ok) {
-          throw new Error(j.error || 'Could not claim');
-        }
-        okBox.style.display = 'block';
-        okBox.textContent = 'Claim created. Show the next screen to staff.';
-        // Send user to staff page to redeem (same device flow)
-        location.href = `/staff.html?bar=${encodeURIComponent(bar)}&nonce=${encodeURIComponent(j.nonce)}`;
+        if (!r.ok || !j.ok) throw new Error(j.error || 'Could not create claim');
+
+        // show QR step
+        const nonce = j.nonce;
+        document.getElementById('stepForm').style.display = 'none';
+        document.getElementById('stepQR').style.display = 'block';
+        document.getElementById('nonceTxt').textContent = nonce;
+
+        // Build a QR image for the NONCE (staff scanner reads the nonce)
+        const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(nonce);
+        document.getElementById('qrImg').src = qrUrl;
+
       } catch (e) {
-        errBox.style.display = 'block';
-        errBox.textContent = e.message || 'Something went wrong.';
-        claimBtn.disabled = false;
+        err.textContent = e.message || 'Something went wrong.';
+        err.style.display = 'block';
+        submitBtn.disabled = false;
       }
     }
 
-    claimBtn.addEventListener('click', () => claimFreeDrink('tiktok1'));
+    document.getElementById('submitBtn').addEventListener('click', claim);
   </script>
 </body>
 </html>
