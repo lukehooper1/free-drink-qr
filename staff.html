@@ -77,18 +77,23 @@
       redeem(n);
     });
 
-    // Start scanner after library loads
+    // Start QR scanner with back camera preference
     window.addEventListener('load', () => {
       if (!window.Html5Qrcode || !staffBar) return;
       const html5QrCode = new Html5Qrcode("reader");
+
       Html5Qrcode.getCameras().then(cams => {
-        const camId = (cams && cams[0]) ? cams[0].id : null;
-        if (!camId) return;
+        if (!cams || cams.length === 0) return;
+
+        // Prefer a back/rear camera, otherwise pick the last camera
+        let camId = null;
+        const backCam = cams.find(c => /back|rear|environment/i.test(c.label));
+        camId = backCam ? backCam.id : cams[cams.length - 1].id;
+
         html5QrCode.start(
           camId,
           { fps: 10, qrbox: { width: 240, height: 240 } },
           (decodedText) => {
-            // We encoded just the nonce on the customer QR
             const n = decodedText.trim();
             if (n) {
               nonceEl.value = n;
